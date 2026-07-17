@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Insider Ledger: Methodology{% endblock %}
+{% block nav_meth %}active{% endblock %}
+
+{% block content %}
+  <h1>Methodology</h1>
+  <p class="sub">In this project I scrape the SEC EDGAR site to get data and documents on the insider trading happening in 2026, using the most recent filings, and I join it to daily stock prices.</p>
+
+  <div class="card" style="max-width:760px;">
+    <p>I do the scraping in Python, using the requests library to download each page and BeautifulSoup to read the HTML and XML and pull out the fields I want.</p>
+
+    <h3 style="margin-top:1.4rem;">What the pipeline does, step by step</h3>
+    <ul>
+      <li>I start from the SEC EDGAR "latest filings" page, set to show the 100 most recent Form 4 filings.</li>
+      <li>That page lists each filing in a small table, so I first pull every field from the table into a dictionary. Some fields are not in their own neat spot on the page, for example the filer's name, ID number and role all sit together in one line of text, so I use regular expressions to pull those pieces apart.</li>
+      <li>Then I follow each filing's link to its own page and open the Form 4 XML. From it I get the shares bought or sold, the price, whether it was an acquisition or a disposal, how many shares the person holds afterwards, and the footnotes.</li>
+      <li>Not every filing has every field, so I only save a field when it actually exists. This keeps the data flexible.</li>
+      <li>Each filing gets a hash, so I can tell new filings from old ones and skip re-scraping. Every run writes a change log and an error log.</li>
+      <li>Because Form 4s arrive continuously and the feed only shows the latest 100, a GitHub Action runs the scrape every 30 minutes to capture filings before they scroll off. This gives near-complete coverage of active filing hours, rather than a single daily slice.</li>
+      <li>The same filing is listed twice, once under the insider and once under the company, so I dedupe on the accession number.</li>
+      <li>I flatten the filings into one row per transaction, then join daily closing prices from the Yahoo Finance API on ticker and transaction date. This gives a market close and a percent above or below market for each trade.</li>
+    </ul>
+
+    <h3 style="margin-top:1.4rem;">Sources</h3>
+    <ul>
+      <li>SEC EDGAR Form 4 filings (scraped).</li>
+      <li>Yahoo Finance daily closing prices (API).</li>
+    </ul>
+
+    <h3 style="margin-top:1.4rem;">Limits and ethics</h3>
+    <ul>
+      <li>Recent filings only, with no long history.</li>
+      <li>Most activity is selling and grants, so open-market buys are rare.</li>
+      <li>Weekend or holiday trades have no closing price, and small or foreign tickers are not on Yahoo, so some trades have no market price.</li>
+      <li>Large gaps between an insider's price and the market are almost always option exercises at a set strike price, or a data mismatch, not profiteering.</li>
+      <li>The data shows what was traded, not why. A trade is not proof of intent, so this tool should not be read as implying wrongdoing.</li>
+    </ul>
+
+    <p style="margin-top:1.4rem;"><em>This is a working draft. A fuller methodology is in progress.</em></p>
+  </div>
+{% endblock %}
