@@ -21,38 +21,31 @@
     <p class="hint">Search covers insider names, company names, tickers, and roles. Every result links to the original SEC filing and exports to CSV.</p>
   </div>
 
-  <div class="tiles">
-    <div class="tile"><div class="n">{{ stats.filings | commas }}</div><div class="l">Filings</div></div>
-    <div class="tile"><div class="n">{{ stats.trades | commas }}</div><div class="l">Trades</div></div>
-    <div class="tile"><div class="n">{{ stats.companies | commas }}</div><div class="l">Companies</div></div>
-    <div class="tile"><div class="n">{{ stats.insiders | commas }}</div><div class="l">Insiders</div></div>
-  </div>
-
   <div class="charts">
     <div class="card">
-      <h3>Most &ldquo;insider trading&rdquo; is just payday</h3>
-      <p class="note">Grants, option exercises, and tax withholding are how executives get paid in stock &mdash; routine paperwork, not a bet on the company. The rare event is an insider spending their own cash.</p>
+      <h3>Top 5 cash buys</h3>
+      <p class="note">The biggest open-market purchases &mdash; insiders spending their own money on their own stock, the strongest signal a Form 4 can carry.</p>
       <div class="bars">
-        {% for b in comp %}
-        <div class="barrow" data-tip="{{ b.label }}: {{ b.n | commas }} trades ({{ b.share }}% of all trades)">
+        {% for b in buys %}
+        <div class="barrow" data-tip="{{ b.label }} ({{ b.company }}): bought {{ b.shares | commas }} shares at {{ b.price | money }} on {{ b.transaction_date }} — {{ b.n | money0 }}">
           <span class="lab">{{ b.label }}</span>
-          <div class="track"><div class="fill" style="width:{{ b.pct }}%"></div></div>
-          <span class="val">{{ b.share }}%</span>
+          <div class="track"><div class="fill buy" style="width:{{ b.pct }}%"></div></div>
+          <span class="val">{{ b.n | compact }}</span>
         </div>
         {% endfor %}
       </div>
-      <p class="foot"><a href="/search?flt=buys">See the open-market buys &rarr;</a></p>
+      <p class="foot"><a href="/search?flt=buys">See all open-market buys &rarr;</a></p>
     </div>
 
     <div class="card">
-      <h3>Shares picked up at half price or better</h3>
-      <p class="note">{{ gains_count | commas }} trades came in 50%+ below that day&rsquo;s closing price &mdash; an instant paper gain. Almost all are options exercised at an old, low strike price: compensation cashing in, not a market coup. (Another {{ near_free | commas }} trades were shares handed over for under $1.)</p>
+      <h3>Top 10 profit makers</h3>
+      <p class="note">Insiders who came out furthest ahead on paper &mdash; the gap between what they paid for shares and what those shares were worth at that day&rsquo;s close. Most of it is compensation: grants and options cashing in, not market bets.</p>
       <div class="bars">
-        {% for b in gains %}
-        <div class="barrow" data-tip="{{ b.label }} — {{ b.code_meaning }}: paid {{ b.price | money }} vs {{ b.market_close | money }} close (+{{ b.n | commas }}%)">
+        {% for b in profits %}
+        <div class="barrow" data-tip="{{ b.label }}: {{ b.n | money0 }} paper profit vs the market close on the day of each trade">
           <span class="lab">{{ b.label }}</span>
-          <div class="track"><div class="fill gain" style="width:{{ b.pct }}%"></div></div>
-          <span class="val">+{{ b.n | commas }}%</span>
+          <div class="track"><div class="fill" style="width:{{ b.pct }}%"></div></div>
+          <span class="val">{{ b.n | compact }}</span>
         </div>
         {% endfor %}
       </div>

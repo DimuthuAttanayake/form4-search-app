@@ -77,53 +77,30 @@ def execute_search_query(query, flt="", limit=None, offset=None):
 def dashboard_data():
     conn = get_db_connection()
 
-    # headline counts (stat tiles)
-    stats = {
-        "filings": conn.execute("SELECT COUNT(*) FROM filings").fetchone()[0],
-        "trades": conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0],
-        "companies": conn.execute("SELECT COUNT(DISTINCT company) FROM filings WHERE company != ''").fetchone()[0],
-        "insiders": conn.execute("SELECT COUNT(DISTINCT insider_name) FROM filings WHERE insider_name != ''").fetchone()[0],
-    }
-
-    # chart 1: most "insider trading" is routine pay, not market bets
-    comp_rows = conn.execute("""
-        SELECT CASE
-                 WHEN code IN ('A', 'M', 'X', 'F') THEN 'Routine pay'
-                 WHEN code = 'S' THEN 'Open-market sells'
-                 WHEN code = 'P' THEN 'Open-market buys'
-                 ELSE 'Everything else'
-               END AS label, COUNT(*) AS n
-        FROM trades GROUP BY label ORDER BY n DESC
-    """).fetchall()
-    total_trades = sum(r["n"] for r in comp_rows) or 1
-    comp = to_bars(comp_rows, total=total_trades)
-
-    # chart 2: trades where the insider paid 50%+ below that day's close
-    # price >= $1 keeps out penny-strike grants, whose "gains" are meaninglessly huge
-    gains_count = conn.execute("""
-        SELECT COUNT(*) FROM trades
-        WHERE price >= 1 AND market_close IS NOT NULL
-          AND (market_close - price) / price * 100 >= 50
-    """).fetchone()[0]
-    near_free = conn.execute("""
-        SELECT COUNT(*) FROM trades
-        WHERE price > 0 AND price < 1 AND market_close IS NOT NULL
-    """).fetchone()[0]
-    gain_rows = conn.execute("""
-        SELECT f.ticker || ' · ' || f.insider_name AS label, t.code_meaning,
-               t.price, t.market_close,
-               ROUND((t.market_close - t.price) / t.price * 100, 0) AS n
+    # box 1: the five biggest open-market cash buys (insiders spending their own money)
+    buy_rows = conn.execute("""
+        SELECT f.ticker || ' · ' || f.insider_name AS label, f.company,
+               t.transaction_date, t.shares, t.price, t.value AS n
         FROM trades t JOIN filings f ON t.accession = f.accession
-        WHERE t.price >= 1 AND t.market_close IS NOT NULL
-          AND (t.market_close - t.price) / t.price * 100 >= 50
-        GROUP BY label, t.price
-        ORDER BY n DESC LIMIT 8
+        WHERE t.code = 'P' AND t.value IS NOT NULL
+        ORDER BY t.value DESC LIMIT 5
     """).fetchall()
-    gains = to_bars(gain_rows)
+    buys = to_bars(buy_rows)
+
+    # box 2: the ten biggest paper profits vs that day's close, summed per insider
+    profit_rows = conn.execute("""
+        SELECT f.ticker || ' · ' || f.insider_name AS label,
+               ROUND(SUM((t.market_close - t.price) * t.shares), 0) AS n
+        FROM trades t JOIN filings f ON t.accession = f.accession
+        WHERE t.acquired_disposed = 'Acquired' AND t.market_close IS NOT NULL
+          AND t.price IS NOT NULL AND t.shares IS NOT NULL
+        GROUP BY label HAVING n > 0
+        ORDER BY n DESC LIMIT 10
+    """).fetchall()
+    profits = to_bars(profit_rows)
 
     conn.close()
-    return {"stats": stats, "comp": comp, "gains": gains,
-            "gains_count": gains_count, "near_free": near_free, "filters": FILTERS}
+    return {"buys": buys, "profits": profits, "filters": FILTERS}
 
 
 def to_bars(rows, total=None):
@@ -204,6 +181,18 @@ def money0(v):
         return "${:,.0f}".format(float(v))
     except (ValueError, TypeError):
         return ""
+
+@app.template_filter("compact")
+def compact(v):
+    # short money labels for chart bars: $1.2B / $45M / $980K
+    try:
+        v = float(v)
+    except (ValueError, TypeError):
+        return ""
+    for cut, suffix in ((1e9, "B"), (1e6, "M"), (1e3, "K")):
+        if abs(v) >= cut:
+            return f"${v / cut:.1f}{suffix}".replace(".0", "")
+    return f"${v:,.0f}"
 
 
 if __name__ == "__main__":
