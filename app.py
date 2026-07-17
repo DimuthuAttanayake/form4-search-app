@@ -77,13 +77,13 @@ def execute_search_query(query, flt="", limit=None, offset=None):
 def dashboard_data():
     conn = get_db_connection()
 
-    # box 1: the five biggest open-market cash buys (insiders spending their own money)
+    # box 1: the ten biggest open-market cash buys (insiders spending their own money)
     buy_rows = conn.execute("""
         SELECT f.ticker || ' · ' || f.insider_name AS label, f.company,
                t.transaction_date, t.shares, t.price, t.value AS n
         FROM trades t JOIN filings f ON t.accession = f.accession
         WHERE t.code = 'P' AND t.value IS NOT NULL
-        ORDER BY t.value DESC LIMIT 5
+        ORDER BY t.value DESC LIMIT 10
     """).fetchall()
     buys = to_bars(buy_rows)
 
