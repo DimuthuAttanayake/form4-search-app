@@ -34,6 +34,9 @@
     <h3 style="margin-top:1.4rem;">Verification</h3>
     <p>I verified the data three ways. I spot-checked rows in my database against the original filings on EDGAR, which every row links to. The pipeline audits itself through its error logs and changelogs, which is how I found the bugs above. And the price join is reproducible by anyone: the tickers, dates, and closes are public, and the CSV export lets a reader rerun the comparison.</p>
 
+    <h3 style="margin-top:1.4rem;">Tools</h3>
+    <p>I wrote the pipeline in Python, with requests and BeautifulSoup for the scraping, pandas and SQLite for the database, and Flask for the site, which is hosted on Render. I used Claude, Anthropic's AI assistant, to help write and debug the code and to help draft this methodology. I reviewed and edited everything it produced, and I verified the numbers in this article against the underlying data myself.</p>
+
     <h3 style="margin-top:1.4rem;">Limitations</h3>
     <p>A Form 4 records a transaction, not a motive. An insider selling may be diversifying or paying tuition, so the site states that a trade is not proof of intent. Price comparisons only make sense for cash trades, so I compute them only where the price is real. Foreign companies traded as ADRs sometimes report prices in another share class or currency, which produces gaps that look dramatic but are artifacts. Nineteen filings report the literal ticker "NONE". Yahoo has no close for weekends, holidays, or thin symbols, so only about half the trades carry a market comparison. And the rolling window undersamples the busiest filing hours.</p>
 
