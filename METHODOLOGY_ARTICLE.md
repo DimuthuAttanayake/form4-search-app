@@ -1,57 +1,51 @@
-# How I Built Insider Ledger: A Methodology
-
-*By Dimuthu Attanayake*
+# Insider Ledger: Methodology
 
 ## Introduction
 
-When a director, an executive, or anyone who owns more than ten percent of a public company buys or sells shares in their own company, U.S. law requires them to tell the government within two business days. The form they file is called a Form 4, and it goes into a public database run by the Securities and Exchange Commission called EDGAR. This is what people usually mean when they say "insider trading" — not the illegal kind, but the legal, disclosed kind that happens every day.
+When a director, an officer, or a shareholder who owns more than ten percent of a public company buys or sells shares in that company, U.S. law requires them to report the trade to the Securities and Exchange Commission within two business days. The report is called a Form 4 and it is published in the SEC's EDGAR database. This is the legal, disclosed version of insider trading, and it happens every day.
 
-Insider Ledger is my attempt to make that disclosure actually readable. The SEC publishes every Form 4, but the raw filings are scattered, one per page, written in regulatory language, and impossible to browse in bulk unless you know your way around EDGAR. I built a scraper that collects these filings continuously, a database that organizes them into individual trades, and a public website where anyone can search them, filter them, and download them — with each trade priced against what the stock was actually worth on the market that day.
+The question I wanted to answer was what this activity actually looks like in aggregate. The individual filings are public, but they are scattered one per page, written in regulatory language, and hard to browse in bulk. I built a scraper that collects the filings continuously, a database that flattens them into individual trades, and a public site where anyone can search, filter, and download them, with each trade priced against the stock's closing price that day.
 
-The argument of the data, once you can see it in aggregate, is a surprising one: most "insider trading" is not insiders betting on their companies at all. It is payday. Grants, stock awards, and option exercises — the routine machinery of executive compensation — make up the bulk of the filings. The rare and interesting event is an insider spending their own cash on the open market.
+Across 1,532 unique filings containing 2,003 transactions, captured between July 5 and July 17, 2026, the main finding is an inversion of what the phrase "insider trading" suggests. About 44 percent of the transactions are grants, option exercises, and tax withholding, which are compensation events rather than market decisions. About a third are open-market sales. Only 7 percent, roughly one trade in fourteen, is an insider spending their own cash to buy their own stock on the open market. The disclosure system mostly documents payday, and the rare cash buy is the signal worth watching.
 
-## Sources
+## Data sources
 
-My primary source is the SEC's EDGAR "current events" feed, which lists the 100 most recent Form 4 filings at any moment. The data is gathered by the SEC itself, but it originates with the insiders: each filing is prepared and signed by (or on behalf of) the person doing the trading, under legal penalty for false statements. So the data's point of view is the insider's own — reviewed by lawyers, structured by the SEC, and mandated by Congress.
+The primary source is the SEC EDGAR "current events" feed, which lists the 100 most recent Form 4 filings at any moment. The SEC publishes the data, but each filing originates with the insider, who signs it under legal penalty for false statements. The data's point of view is therefore the insider's own account of the trade, structured by the SEC.
 
-My second source is Yahoo Finance, which I used to get each stock's daily closing price. This lets me compare what an insider paid per share with what the market said the share was worth at the end of that same day.
+The second source is the Yahoo Finance chart API, which I used to pull each stock's daily closing price. Joining the two lets me compare what an insider paid per share with what the market said the share was worth at the close of the same day.
 
 ## Scope
 
-The dataset covers Form 4 filings that passed through EDGAR's latest-100 feed between July 5 and July 17, 2026, collected by a scraper that ran automatically every 30 minutes. At the time of writing that is 1,532 unique filings containing 2,003 individual transactions, across 314 companies and around 700 insiders.
+The dataset covers filings that passed through the latest-100 feed while my scraper was running, from July 5 to July 17, 2026, at 30-minute intervals. This is a rolling window, not a census. If more than 100 filings arrived between two runs, which can happen in the after-market rush when most Form 4s are filed, some filings scrolled off the feed without being captured. The dataset is a large continuous sample of recent filings, not the complete record. The complete record remains on EDGAR, and every row in my database links back to its original filing there.
 
-This is a rolling window, not a census. If more than 100 filings arrived between two runs of my scraper — which can happen in the after-market rush when most Form 4s get filed — some filings would pass through the feed without being captured. My dataset is best described as a large, continuous sample of recent insider filings, not the complete record. The complete record exists on EDGAR; my contribution is making a live slice of it explorable.
+## The scraper
 
-## Gathering and preparation
+I wrote the scraper in Python, using the requests library to download pages and BeautifulSoup to parse them. It works in two layers. The first layer reads the feed table and captures every visible field: filer, company, dates, and the accession number that uniquely identifies each filing. The second layer follows each filing to its index page and then to the raw Form 4 XML, which holds the substance: shares, price per share, whether the shares were acquired or disposed of, holdings after the transaction, and the footnote text.
 
-I wrote the scraper in Python, using the requests library to download pages and BeautifulSoup to parse them. It works in two layers. The first layer reads the feed's table and captures every visible field: who filed, for which company, when, and the accession number that uniquely identifies the filing. The second layer follows each filing to its index page and then to the raw Form 4 XML, where the actual substance lives: how many shares, at what price, whether they were acquired or disposed of, what the insider held afterward, and the footnotes where the caveats hide.
+The scraper runs on GitHub Actions every 30 minutes and commits results to a public repository. Form 4s are immutable once filed, so I detect changes by hashing each filing's stable identifiers (accession number, acceptance time, and filer ID) and skip anything unchanged. Every run writes a changelog and an error log. The SEC requires scrapers to identify themselves, so every request carries my name and Columbia email, and the code sleeps between requests to stay under the SEC's rate limit of ten requests per second.
 
-The scraper runs on GitHub Actions every 30 minutes and commits its results to a public repository. Because Form 4s are immutable once filed, I detect changes by hashing each filing's stable identifiers (accession number, acceptance time, and filer ID); unchanged filings are skipped rather than re-downloaded. Every run writes a changelog of additions and an error log of anything that failed. The SEC asks scrapers to identify themselves, so every request carries my name and Columbia email, and the code pauses between requests to stay well under the SEC's rate limit.
+## Building the database
 
-A separate build script turns the accumulated JSON into a SQLite database with two tables — one row per filing, one row per transaction — and joins each transaction to Yahoo's closing price by ticker and date. A Flask app on Render serves the search interface, the filters, the CSV export, and the dashboard.
+A build script turns the accumulated JSON into a SQLite database with two tables, one row per filing and one row per transaction. The same filing appears twice in the feed, once under the insider and once under the company, so I dedupe on accession number. I then join each transaction to Yahoo's closing price on ticker and date.
 
-## Definitions
+Each transaction carries an SEC code, which I translate into plain English: P is an open-market purchase, S an open-market sale, A a grant or award, M and X are option exercises, F is shares withheld for taxes. I group A, M, X, and F together as routine pay, because that is what they are. "Vs. market" is the percentage gap between the insider's price and that day's close. "Paper profit" on the dashboard is that gap multiplied by shares. I call it paper profit deliberately: nothing says the insider sold, and most of these gains are compensation being valued, not trading skill.
 
-A few definitions do a lot of work in this project. A "trade" is a single transaction line inside a filing; one filing can contain several. Each transaction carries an SEC code, which I translated into plain English: P is an open-market purchase, S an open-market sale, A a grant or award, M and X are option exercises, F is shares withheld for taxes. I group A, M, X, and F together as "routine pay," because that is what they are — compensation events, not market decisions.
+## Trial & Error
 
-"Vs. market" is the percentage gap between the price the insider paid and that day's closing price. "Paper profit" on the dashboard is that gap multiplied by the number of shares — what the acquired shares were worth at the close, minus what the insider paid for them. I call it paper profit deliberately: nothing says the insider sold, and most of these gains are simply compensation being valued, not trading skill.
+The pipeline broke in instructive ways. For five days the GitHub Actions scraper failed intermittently, 56 failed runs in total, because one line assumed the first element of a table cell was text. When a filing's description cell started with an HTML tag instead, BeautifulSoup returned None and the run crashed. The failures came and went depending on which filings happened to be in the feed, which is what made the bug hard to spot. I fixed it by checking the element type before reading it.
 
-## Critique: what the data cannot say
-
-The most important limitation is interpretive: a Form 4 records a transaction, not a motive. An insider selling can be diversifying, divorcing, or paying tuition. The site's footer says "a trade is not proof of intent," and I mean it.
-
-There are also mechanical limits. Grants and option exercises are often priced at $0 or at an old strike price, so price-versus-market comparisons are only meaningful for real cash trades — I compute them only where they make sense. Foreign companies traded as ADRs sometimes report prices in a different share class or currency, which produces gaps that look dramatic but are artifacts. Some filers report no ticker at all (the literal ticker "NONE" appears 19 times). Yahoo has no closing price for weekends, holidays, or thinly traded symbols, so only about half of the trades carry a market comparison. And the rolling-window problem above means busy filing days are undersampled.
+Some transaction dates arrived with a timezone suffix, such as 2024-12-27-05:00, which crashed the price join until I trimmed dates to their first ten characters. A first version of the dashboard ranked trades by percentage gain against the market, and the list was swamped by grants priced at one cent showing gains of several million percent. The numbers were technically correct and completely meaningless, so I rebuilt the ranking around dollar values instead.
 
 ## Verification
 
-I verified the pipeline in three ways. First, spot checks: rows from my database against the original filings on EDGAR, which every row links back to. Second, the pipeline audits itself — every run logs errors and changes, and those logs led me to real bugs, including one where an unusual HTML structure in the feed crashed the scraper intermittently for five days until I found and fixed it. Third, the price join is verifiable by anyone: the tickers, dates, and prices are all public, and the CSV export means a reader can rerun my comparisons themselves.
+I verified the data three ways. I spot-checked rows in my database against the original filings on EDGAR, which every row links to. The pipeline audits itself through its error logs and changelogs, which is how I found the bugs above. And the price join is reproducible by anyone: the tickers, dates, and closes are public, and the CSV export lets a reader rerun the comparison.
 
-## Findings
+## Limitations
 
-Out of 2,003 transactions, about 44 percent are routine pay, about a third are open-market sales, and only 7 percent — roughly one trade in fourteen — is an insider buying their own stock with their own money on the open market. That inversion is the story: the phrase "insider trading" conjures conviction bets, but the disclosure system mostly documents compensation. The dashboard leads with the exceptions, because they are the signal: the largest cash purchases and the insiders who came out furthest ahead against the market.
+A Form 4 records a transaction, not a motive. An insider selling may be diversifying or paying tuition, so the site states that a trade is not proof of intent. Price comparisons only make sense for cash trades, so I compute them only where the price is real. Foreign companies traded as ADRs sometimes report prices in another share class or currency, which produces gaps that look dramatic but are artifacts. Nineteen filings report the literal ticker "NONE". Yahoo has no close for weekends, holidays, or thin symbols, so only about half the trades carry a market comparison. And the rolling window undersamples the busiest filing hours.
 
 ## Conclusion
 
-What we know now is modest but real: what two weeks of American insider filings actually look like, searchable by anyone, with every claim traceable to a government document. What more could be done is clear too — run the scraper for a year and seasonal patterns emerge; join it to news events and you could ask whether buys cluster before announcements. Everything here is public by law and by design: Congress decided in 1934 that this belongs in the open. My project just makes the reading easier.
+What I know now is what two weeks of American insider filings look like: mostly compensation, occasionally conviction. Run the scraper for a year and seasonal patterns would emerge. Join it to news events and I could ask whether cash buys cluster before announcements. Everything here is public by law, and has been since 1934. My project just makes the reading easier.
 
-*The code, data, and this methodology are public at github.com/DimuthuAttanayake/form4-search-app.*
+The code, data, and this methodology are public at github.com/DimuthuAttanayake/form4-search-app.
