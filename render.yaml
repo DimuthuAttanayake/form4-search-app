@@ -1,0 +1,8 @@
+# tells Render how to run the app, so deploying is one click
+services:
+  - type: web
+    name: insider-ledger
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
