@@ -4,5 +4,6 @@ services:
     name: insider-ledger
     runtime: python
     plan: free
+    region: virginia
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
