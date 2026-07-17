@@ -18,8 +18,18 @@ def get_db_connection():
     return conn
 
 
+# quick filters a user can click instead of typing (also the dashboard chips)
+FILTERS = {
+    "buys":      ("t.code = 'P'", "Buys"),
+    "sells":     ("t.code = 'S'", "Sells"),
+    "grants":    ("t.code = 'A'", "Grants"),
+    "exercises": ("t.code IN ('M', 'X')", "Option exercises"),
+    "directors": ("f.relationship LIKE '%Director%'", "Directors"),
+}
+
+
 # handling the search query
-def execute_search_query(query, limit=None, offset=None):
+def execute_search_query(query, flt="", limit=None, offset=None):
     # one helper so the page and the CSV export always search the same way
     conn = get_db_connection()
     search_term = f"%{query}%"
@@ -28,12 +38,13 @@ def execute_search_query(query, limit=None, offset=None):
     searchable_columns = ["f.insider_name", "f.company", "f.ticker", "f.relationship"]
 
     # with no search term we match everything, so the page shows the most recent trades
+    conditions, params = [], []
     if query:
-        where_clause = "WHERE " + " OR ".join([f"{col} LIKE ?" for col in searchable_columns])
+        conditions.append("(" + " OR ".join([f"{col} LIKE ?" for col in searchable_columns]) + ")")
         params = [search_term] * len(searchable_columns)
-    else:
-        where_clause = ""
-        params = []
+    if flt in FILTERS:
+        conditions.append(FILTERS[flt][0])
+    where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
 
     # each trade joined to its filing, newest first
     sql_base = f"""
@@ -74,119 +85,58 @@ def dashboard_data():
         "insiders": conn.execute("SELECT COUNT(DISTINCT insider_name) FROM filings WHERE insider_name != ''").fetchone()[0],
     }
 
-    # chart: how many trades of each type (single-series magnitude)
-    type_rows = conn.execute("""
-        SELECT code_meaning AS label, COUNT(*) AS n FROM trades
-        WHERE code_meaning != '' GROUP BY code_meaning ORDER BY n DESC
+    # chart 1: most "insider trading" is routine pay, not market bets
+    comp_rows = conn.execute("""
+        SELECT CASE
+                 WHEN code IN ('A', 'M', 'X', 'F') THEN 'Routine pay'
+                 WHEN code = 'S' THEN 'Open-market sells'
+                 WHEN code = 'P' THEN 'Open-market buys'
+                 ELSE 'Everything else'
+               END AS label, COUNT(*) AS n
+        FROM trades GROUP BY label ORDER BY n DESC
     """).fetchall()
-    types = to_bars(type_rows)
+    total_trades = sum(r["n"] for r in comp_rows) or 1
+    comp = to_bars(comp_rows, total=total_trades)
 
-    # chart: most active companies by number of trades
-    company_rows = conn.execute("""
-        SELECT f.company AS label, COUNT(*) AS n
+    # chart 2: trades where the insider paid 50%+ below that day's close
+    # price >= $1 keeps out penny-strike grants, whose "gains" are meaninglessly huge
+    gains_count = conn.execute("""
+        SELECT COUNT(*) FROM trades
+        WHERE price >= 1 AND market_close IS NOT NULL
+          AND (market_close - price) / price * 100 >= 50
+    """).fetchone()[0]
+    near_free = conn.execute("""
+        SELECT COUNT(*) FROM trades
+        WHERE price > 0 AND price < 1 AND market_close IS NOT NULL
+    """).fetchone()[0]
+    gain_rows = conn.execute("""
+        SELECT f.ticker || ' · ' || f.insider_name AS label, t.code_meaning,
+               t.price, t.market_close,
+               ROUND((t.market_close - t.price) / t.price * 100, 0) AS n
         FROM trades t JOIN filings f ON t.accession = f.accession
-        WHERE f.company != '' GROUP BY f.company ORDER BY n DESC LIMIT 8
+        WHERE t.price >= 1 AND t.market_close IS NOT NULL
+          AND (t.market_close - t.price) / t.price * 100 >= 50
+        GROUP BY label, t.price
+        ORDER BY n DESC LIMIT 8
     """).fetchall()
-    companies = to_bars(company_rows)
-
-    # chart: most active insiders by number of trades
-    insider_rows = conn.execute("""
-        SELECT f.insider_name AS label, COUNT(*) AS n
-        FROM trades t JOIN filings f ON t.accession = f.accession
-        WHERE f.insider_name != '' GROUP BY f.insider_name ORDER BY n DESC LIMIT 8
-    """).fetchall()
-    top_insiders = to_bars(insider_rows)
-
-    # chart: acquired vs disposed (the overall buy/sell balance)
-    direction_rows = conn.execute("""
-        SELECT acquired_disposed AS label, COUNT(*) AS n FROM trades
-        WHERE acquired_disposed != '' GROUP BY acquired_disposed ORDER BY n DESC
-    """).fetchall()
-    direction = to_bars(direction_rows)
-
-    # donut: how insiders got their shares (cash purchase vs grant vs option exercise)
-    acq_rows = conn.execute("""
-        SELECT code_meaning AS label, COUNT(*) AS n FROM trades
-        WHERE acquired_disposed = 'Acquired' AND code_meaning != ''
-        GROUP BY code_meaning ORDER BY n DESC
-    """).fetchall()
-    acquired = to_slices(acq_rows)
-
-    # chart: how each trade's price compared to that day's market close
-    vm = conn.execute("""
-        SELECT
-            SUM(CASE WHEN pct_vs_market < -1 THEN 1 ELSE 0 END) AS below,
-            SUM(CASE WHEN pct_vs_market >= -1 AND pct_vs_market <= 1 THEN 1 ELSE 0 END) AS near,
-            SUM(CASE WHEN pct_vs_market > 1 THEN 1 ELSE 0 END) AS above
-        FROM trades WHERE pct_vs_market IS NOT NULL
-    """).fetchone()
-    vs_market = to_bars([
-        {"label": "Below market", "n": vm["below"] or 0},
-        {"label": "Within 1% of market", "n": vm["near"] or 0},
-        {"label": "Above market", "n": vm["above"] or 0},
-    ])
-
-    # highlight 1: rare open-market buys (the high-signal event)
-    buys = conn.execute("""
-        SELECT f.insider_name, f.company, f.ticker, f.relationship,
-               t.transaction_date, t.shares, t.price, t.value, t.pct_vs_market, f.sec_url
-        FROM trades t JOIN filings f ON t.accession = f.accession
-        WHERE t.code = 'P' ORDER BY t.value DESC
-    """).fetchall()
-
-    # highlight 2: biggest trades by dollar value
-    biggest = conn.execute("""
-        SELECT f.insider_name, f.company, f.ticker, t.code_meaning, t.acquired_disposed,
-               t.transaction_date, t.shares, t.price, t.value, f.sec_url
-        FROM trades t JOIN filings f ON t.accession = f.accession
-        WHERE t.value IS NOT NULL ORDER BY t.value DESC LIMIT 10
-    """).fetchall()
-
-    # highlight 3: biggest price deviations, each labelled with the likely reason
-    outlier_rows = conn.execute("""
-        SELECT f.insider_name, f.company, f.ticker, t.code, t.code_meaning,
-               t.price, t.market_close, t.pct_vs_market, f.sec_url
-        FROM trades t JOIN filings f ON t.accession = f.accession
-        WHERE t.pct_vs_market IS NOT NULL
-        ORDER BY ABS(t.pct_vs_market) DESC LIMIT 10
-    """).fetchall()
-    outliers = [dict(r, reason=outlier_reason(r["code"], r["pct_vs_market"])) for r in outlier_rows]
+    gains = to_bars(gain_rows)
 
     conn.close()
-    return {"stats": stats, "types": types, "companies": companies,
-            "top_insiders": top_insiders, "direction": direction,
-            "acquired": acquired, "vs_market": vs_market,
-            "buys": buys, "biggest": biggest, "outliers": outliers}
+    return {"stats": stats, "comp": comp, "gains": gains,
+            "gains_count": gains_count, "near_free": near_free, "filters": FILTERS}
 
 
-def to_bars(rows):
+def to_bars(rows, total=None):
     # attach a width percent to each row so the template can draw a simple bar
     top = max([r["n"] for r in rows], default=1)
-    return [{"label": r["label"], "n": r["n"], "pct": round(r["n"] / top * 100, 1)} for r in rows]
-
-
-def to_slices(rows):
-    # build donut slices (share of total) using tints of the one teal accent
-    tints = ["#2f6f6a", "#4f938c", "#77b3ad", "#a3ccc8", "#cfe3e1"]
-    total = sum(r["n"] for r in rows) or 1
-    slices, cum = [], 0.0
-    for i, r in enumerate(rows):
-        pct = r["n"] / total * 100
-        slices.append({"label": r["label"], "n": r["n"], "pct": round(pct),
-                       "start": round(cum, 2), "end": round(cum + pct, 2),
-                       "color": tints[i % len(tints)]})
-        cum += pct
-    gradient = ", ".join(f'{s["color"]} {s["start"]}% {s["end"]}%' for s in slices)
-    return {"slices": slices, "gradient": gradient}
-
-
-def outlier_reason(code, pct):
-    # explain WHY a trade is far from market, so we never imply wrongdoing
-    if code in ("M", "X", "C"):
-        return "Option or derivative exercised at its set strike price"
-    if abs(pct) > 200:
-        return "Likely a data mismatch (foreign share or currency)"
-    return "Open-market trade priced away from the daily close"
+    bars = []
+    for r in rows:
+        b = dict(r)
+        b["pct"] = round(r["n"] / top * 100, 1)
+        if total:
+            b["share"] = round(r["n"] / total * 100)
+        bars.append(b)
+    return bars
 
 
 @app.route("/", methods=["GET"])
@@ -197,18 +147,21 @@ def index():
 @app.route("/search", methods=["GET"])
 def search():
     query = request.args.get("query", "").strip()
+    flt = request.args.get("flt", "").strip()
     page = request.args.get("page", 1, type=int)
     offset = (page - 1) * PER_PAGE
-    results, total_count = execute_search_query(query, limit=PER_PAGE, offset=offset)
+    results, total_count = execute_search_query(query, flt, limit=PER_PAGE, offset=offset)
     total_pages = (total_count + PER_PAGE - 1) // PER_PAGE
-    return render_template("search.html", results=results, query=query,
-                           page=page, total_pages=total_pages, total_count=total_count)
+    return render_template("search.html", results=results, query=query, flt=flt,
+                           filters=FILTERS, page=page, total_pages=total_pages,
+                           total_count=total_count)
 
 
 @app.route("/export", methods=["GET"])
 def export_csv():
     query = request.args.get("query", "").strip()
-    results, _ = execute_search_query(query)  # all matching rows, no page limit
+    flt = request.args.get("flt", "").strip()
+    results, _ = execute_search_query(query, flt)  # all matching rows, no page limit
 
     si = io.StringIO()
     cw = csv.writer(si)

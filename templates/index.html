@@ -6,157 +6,57 @@
   <h1>What are corporate insiders doing with their own stock?</h1>
   <p class="sub">A live, searchable record of recent SEC Form 4 filings, with every trade priced against the market that day.</p>
 
-  <div class="searchbar">
-    <form class="searchbar" action="/search" method="GET" style="width:100%; margin:0;">
-      <input type="text" name="query" placeholder="Search an insider, company, or ticker...">
+  <div class="controls">
+    <form class="searchrow" action="/search" method="GET">
+      <input type="text" name="query" placeholder="Search by insider, company, ticker, or role...">
       <button class="btn" type="submit">Search</button>
     </form>
+    <div class="chips">
+      <span class="chiplab">Browse</span>
+      <a class="chip" href="/search">All trades</a>
+      {% for key, f in filters.items() %}
+      <a class="chip" href="/search?flt={{ key }}">{{ f[1] }}</a>
+      {% endfor %}
+    </div>
+    <p class="hint">Search covers insider names, company names, tickers, and roles. Every result links to the original SEC filing and exports to CSV.</p>
   </div>
 
-  <p class="summary">{{ stats.trades | commas }} trades across {{ stats.filings | commas }} filings, {{ stats.companies | commas }} companies and {{ stats.insiders | commas }} insiders.</p>
+  <div class="tiles">
+    <div class="tile"><div class="n">{{ stats.filings | commas }}</div><div class="l">Filings</div></div>
+    <div class="tile"><div class="n">{{ stats.trades | commas }}</div><div class="l">Trades</div></div>
+    <div class="tile"><div class="n">{{ stats.companies | commas }}</div><div class="l">Companies</div></div>
+    <div class="tile"><div class="n">{{ stats.insiders | commas }}</div><div class="l">Insiders</div></div>
+  </div>
 
-  <h2>Activity at a glance</h2>
   <div class="charts">
     <div class="card">
-      <h3>Trades by type</h3>
+      <h3>Most &ldquo;insider trading&rdquo; is just payday</h3>
+      <p class="note">Grants, option exercises, and tax withholding are how executives get paid in stock &mdash; routine paperwork, not a bet on the company. The rare event is an insider spending their own cash.</p>
       <div class="bars">
-        {% for b in types %}
-        <div class="barrow">
-          <span class="lab" title="{{ b.label }}">{{ b.label }}</span>
-          <span class="track"><span class="fill" style="width: {{ b.pct }}%"></span></span>
-          <span class="val">{{ b.n }}</span>
+        {% for b in comp %}
+        <div class="barrow" data-tip="{{ b.label }}: {{ b.n | commas }} trades ({{ b.share }}% of all trades)">
+          <span class="lab">{{ b.label }}</span>
+          <div class="track"><div class="fill" style="width:{{ b.pct }}%"></div></div>
+          <span class="val">{{ b.share }}%</span>
         </div>
         {% endfor %}
       </div>
+      <p class="foot"><a href="/search?flt=buys">See the open-market buys &rarr;</a></p>
     </div>
-    <div class="card">
-      <h3>Acquired vs disposed</h3>
-      <div class="bars">
-        {% for b in direction %}
-        <div class="barrow">
-          <span class="lab" title="{{ b.label }}">{{ b.label }}</span>
-          <span class="track"><span class="fill" style="width: {{ b.pct }}%"></span></span>
-          <span class="val">{{ b.n }}</span>
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-    <div class="card">
-      <h3>Most active companies</h3>
-      <div class="bars">
-        {% for b in companies %}
-        <div class="barrow">
-          <span class="lab" title="{{ b.label }}">{{ b.label }}</span>
-          <span class="track"><span class="fill" style="width: {{ b.pct }}%"></span></span>
-          <span class="val">{{ b.n }}</span>
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-    <div class="card">
-      <h3>Most active insiders</h3>
-      <div class="bars">
-        {% for b in top_insiders %}
-        <div class="barrow">
-          <span class="lab" title="{{ b.label }}">{{ b.label }}</span>
-          <span class="track"><span class="fill" style="width: {{ b.pct }}%"></span></span>
-          <span class="val">{{ b.n }}</span>
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-    <div class="card">
-      <h3>How insiders acquired shares</h3>
-      <div class="donutwrap">
-        <div class="donut" style="background: conic-gradient({{ acquired.gradient }})"></div>
-        <div class="legend">
-          {% for s in acquired.slices %}
-          <div class="row">
-            <span class="sw" style="background: {{ s.color }}"></span>
-            <span class="lab2" title="{{ s.label }}">{{ s.label }}</span>
-            <span class="v">{{ s.n }} ({{ s.pct }}%)</span>
-          </div>
-          {% endfor %}
-        </div>
-      </div>
-    </div>
-    <div class="card">
-      <h3>Trade price vs the market</h3>
-      <div class="bars">
-        {% for b in vs_market %}
-        <div class="barrow">
-          <span class="lab" title="{{ b.label }}">{{ b.label }}</span>
-          <span class="track"><span class="fill" style="width: {{ b.pct }}%"></span></span>
-          <span class="val">{{ b.n }}</span>
-        </div>
-        {% endfor %}
-      </div>
-      <p class="highlight-note" style="margin-top:.9rem;">"Below market" is mostly options exercised at a set strike price, not cheap buying.</p>
-    </div>
-  </div>
 
-  <h2>Rare: open-market purchases</h2>
-  <p class="highlight-note">Insiders selling is routine. Spending real cash to <em>buy</em> their own stock (code P) is uncommon, and the signal analysts watch most.</p>
-  <div class="scroll">
-    <table>
-      <thead><tr><th>Insider</th><th>Company</th><th>Ticker</th><th>Role</th><th>Date</th><th class="num">Shares</th><th class="num">Price</th><th class="num">Value</th><th>Source</th></tr></thead>
-      <tbody>
-        {% for r in buys %}
-        <tr>
-          <td>{{ r['insider_name'] }}</td><td>{{ r['company'] }}</td>
-          <td class="tkr">{{ r['ticker'] }}</td><td>{{ r['relationship'] }}</td>
-          <td class="num">{{ r['transaction_date'] }}</td>
-          <td class="num">{{ r['shares'] | commas }}</td>
-          <td class="num">{{ r['price'] | money }}</td>
-          <td class="num">{{ r['value'] | money0 }}</td>
-          <td><a class="src" href="{{ r['sec_url'] }}" target="_blank" rel="noopener">SEC &#8599;</a></td>
-        </tr>
-        {% else %}
-        <tr><td colspan="9" class="empty">No open-market purchases in the current data.</td></tr>
+    <div class="card">
+      <h3>Shares picked up at half price or better</h3>
+      <p class="note">{{ gains_count | commas }} trades came in 50%+ below that day&rsquo;s closing price &mdash; an instant paper gain. Almost all are options exercised at an old, low strike price: compensation cashing in, not a market coup. (Another {{ near_free | commas }} trades were shares handed over for under $1.)</p>
+      <div class="bars">
+        {% for b in gains %}
+        <div class="barrow" data-tip="{{ b.label }} — {{ b.code_meaning }}: paid {{ b.price | money }} vs {{ b.market_close | money }} close (+{{ b.n | commas }}%)">
+          <span class="lab">{{ b.label }}</span>
+          <div class="track"><div class="fill gain" style="width:{{ b.pct }}%"></div></div>
+          <span class="val">+{{ b.n | commas }}%</span>
+        </div>
         {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <h2>Biggest trades by value</h2>
-  <div class="scroll">
-    <table>
-      <thead><tr><th>Insider</th><th>Company</th><th>Ticker</th><th>Type</th><th>Date</th><th class="num">Shares</th><th class="num">Price</th><th class="num">Value</th><th>Source</th></tr></thead>
-      <tbody>
-        {% for r in biggest %}
-        <tr>
-          <td>{{ r['insider_name'] }}</td><td>{{ r['company'] }}</td>
-          <td class="tkr">{{ r['ticker'] }}</td>
-          <td>{% if r['acquired_disposed'] == 'Acquired' %}<span class="pill buy">Acquired</span>{% elif r['acquired_disposed'] == 'Disposed' %}<span class="pill sell">Disposed</span>{% endif %} {{ r['code_meaning'] }}</td>
-          <td class="num">{{ r['transaction_date'] }}</td>
-          <td class="num">{{ r['shares'] | commas }}</td>
-          <td class="num">{{ r['price'] | money }}</td>
-          <td class="num">{{ r['value'] | money0 }}</td>
-          <td><a class="src" href="{{ r['sec_url'] }}" target="_blank" rel="noopener">SEC &#8599;</a></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <h2>Prices far from the market, flagged for review</h2>
-  <p class="highlight-note">The largest gaps between the insider's price and that day's market close. These are usually option exercises or data quirks, <strong>not</strong> evidence of wrongdoing. Each is labelled with the likely reason and worth a closer look, nothing more.</p>
-  <div class="scroll">
-    <table>
-      <thead><tr><th>Insider</th><th>Company</th><th>Ticker</th><th class="num">Insider price</th><th class="num">Market</th><th class="num">vs Market</th><th>Likely reason</th><th>Source</th></tr></thead>
-      <tbody>
-        {% for r in outliers %}
-        <tr>
-          <td>{{ r['insider_name'] }}</td><td>{{ r['company'] }}</td>
-          <td class="tkr">{{ r['ticker'] }}</td>
-          <td class="num">{{ r['price'] | money }}</td>
-          <td class="num">{{ r['market_close'] | money }}</td>
-          <td class="num {% if r['pct_vs_market'] > 0 %}up{% elif r['pct_vs_market'] < 0 %}down{% endif %}">{{ '%+.0f' | format(r['pct_vs_market']) }}%</td>
-          <td>{{ r['reason'] }}</td>
-          <td><a class="src" href="{{ r['sec_url'] }}" target="_blank" rel="noopener">SEC &#8599;</a></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+      </div>
+      <p class="foot"><a href="/search?flt=exercises">See all option exercises &rarr;</a></p>
+    </div>
   </div>
 {% endblock %}

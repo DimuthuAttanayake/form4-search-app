@@ -6,14 +6,28 @@
   <h1>Search insider trades</h1>
   <p class="sub">Search by insider, company, ticker, or role. Every row links back to the original SEC filing.</p>
 
-  <form class="searchbar" action="/search" method="GET">
-    <input type="text" name="query" value="{{ query }}" placeholder="Search insider, company, or ticker...">
-    <button class="btn" type="submit">Search</button>
-  </form>
+  <div class="controls">
+    <form class="searchrow" action="/search" method="GET">
+      <input type="text" name="query" value="{{ query }}" placeholder="Search by insider, company, ticker, or role...">
+      {% if flt %}<input type="hidden" name="flt" value="{{ flt }}">{% endif %}
+      <button class="btn" type="submit">Search</button>
+    </form>
+    <div class="chips">
+      <span class="chiplab">Filter</span>
+      <a class="chip {% if not flt %}on{% endif %}" href="/search?query={{ query }}">All trades</a>
+      {% for key, f in filters.items() %}
+      <a class="chip {% if flt == key %}on{% endif %}" href="/search?query={{ query }}&flt={{ key }}">{{ f[1] }}</a>
+      {% endfor %}
+    </div>
+  </div>
 
   <div class="meta">
-    <span class="count">{% if query %}Results for "{{ query }}"{% else %}Most recent trades{% endif %} &middot; {{ total_count }} total</span>
-    <a class="btn ghost" href="/export?query={{ query }}">&#8595; Export CSV</a>
+    <span class="count">
+      {% if query %}Results for &ldquo;{{ query }}&rdquo;{% else %}Most recent trades{% endif %}
+      {% if flt in filters %} &middot; {{ filters[flt][1] }}{% endif %}
+      &middot; {{ total_count | commas }} total
+    </span>
+    <a class="btn ghost" href="/export?query={{ query }}&flt={{ flt }}">&#8595; Export CSV</a>
   </div>
 
   {% if results %}
@@ -43,9 +57,9 @@
 
   {% if total_pages > 1 %}
   <nav class="pager" aria-label="pagination">
-    {% if page > 1 %}<a class="btn ghost" href="/search?query={{ query }}&page={{ page - 1 }}">&#9664; Prev</a>{% endif %}
+    {% if page > 1 %}<a class="btn ghost" href="/search?query={{ query }}&flt={{ flt }}&page={{ page - 1 }}">&#9664; Prev</a>{% endif %}
     <span class="pg">Page {{ page }} of {{ total_pages }}</span>
-    {% if page < total_pages %}<a class="btn ghost" href="/search?query={{ query }}&page={{ page + 1 }}">Next &#9654;</a>{% endif %}
+    {% if page < total_pages %}<a class="btn ghost" href="/search?query={{ query }}&flt={{ flt }}&page={{ page + 1 }}">Next &#9654;</a>{% endif %}
   </nav>
   {% endif %}
 
