@@ -24,7 +24,7 @@
   <div class="charts">
     <div class="card">
       <h3>Top 10 cash buys</h3>
-      <p class="note">The biggest open-market purchases &mdash; insiders spending their own money on their own stock, the strongest signal a Form 4 can carry.</p>
+      <p class="note">The biggest open-market purchases. These are insiders spending their own money on their own stock, a potential signal of activity worth further investigation from Form 4 data.</p>
       <div class="bars">
         {% for b in buys %}
         <div class="barrow" data-tip="{{ b.label }} ({{ b.company }}): bought {{ b.shares | commas }} shares at {{ b.price | money }} on {{ b.transaction_date }} — {{ b.n | money0 }}">
@@ -39,7 +39,7 @@
 
     <div class="card">
       <h3>Top 10 profit makers</h3>
-      <p class="note">Insiders who came out furthest ahead on paper &mdash; the gap between what they paid for shares and what those shares were worth at that day&rsquo;s close. Most of it is compensation: grants and options cashing in, not market bets.</p>
+      <p class="note">The gap between what insiders paid for shares and what those shares were worth at that day&rsquo;s close. Most of it is compensation received as grants and options cashing in.</p>
       <div class="bars">
         {% for b in profits %}
         <div class="barrow" data-tip="{{ b.label }}: {{ b.n | money0 }} paper profit vs the market close on the day of each trade">
