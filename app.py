@@ -2,7 +2,7 @@ import csv
 import io
 import os
 import sqlite3
-from flask import Flask, make_response, render_template, request
+from flask import Flask, make_response, redirect, render_template, request
 
 app = Flask(__name__)
 PER_PAGE = 20  # number of results per page
@@ -121,20 +121,28 @@ def to_bars(rows, total=None):
 
 @app.route("/", methods=["GET"])
 def index():
-    return render_template("index.html", **dashboard_data())
+    query = request.args.get("query", "").strip()
+    flt = request.args.get("flt", "").strip()
+    context = dashboard_data()
+
+    # only run a search when the user actually searched or picked a filter,
+    # so the dashboard highlight boxes still show on a plain visit to "/"
+    if query or flt:
+        page = request.args.get("page", 1, type=int)
+        offset = (page - 1) * PER_PAGE
+        results, total_count = execute_search_query(query, flt, limit=PER_PAGE, offset=offset)
+        total_pages = (total_count + PER_PAGE - 1) // PER_PAGE
+        context.update(searched=True, results=results, query=query, flt=flt,
+                        page=page, total_pages=total_pages, total_count=total_count)
+
+    return render_template("index.html", **context)
 
 
 @app.route("/search", methods=["GET"])
 def search():
-    query = request.args.get("query", "").strip()
-    flt = request.args.get("flt", "").strip()
-    page = request.args.get("page", 1, type=int)
-    offset = (page - 1) * PER_PAGE
-    results, total_count = execute_search_query(query, flt, limit=PER_PAGE, offset=offset)
-    total_pages = (total_count + PER_PAGE - 1) // PER_PAGE
-    return render_template("search.html", results=results, query=query, flt=flt,
-                           filters=FILTERS, page=page, total_pages=total_pages,
-                           total_count=total_count)
+    # search now lives on the dashboard; keep this route as a redirect so old
+    # links and bookmarks still land somewhere that works
+    return redirect(f"/?{request.query_string.decode()}")
 
 
 @app.route("/export", methods=["GET"])

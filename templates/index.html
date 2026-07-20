@@ -7,20 +7,68 @@
   <p class="sub">A live, searchable record of recent SEC Form 4 filings, with every trade priced against the market that day.</p>
 
   <div class="controls">
-    <form class="searchrow" action="/search" method="GET">
-      <input type="text" name="query" placeholder="Search by insider, company, ticker, or role...">
+    <form class="searchrow" action="/" method="GET">
+      <input type="text" name="query" value="{{ query }}" placeholder="Search by insider, company, ticker, or role...">
       <button class="btn" type="submit">Search</button>
     </form>
     <div class="chips">
       <span class="chiplab">Browse</span>
-      <a class="chip" href="/search">All trades</a>
+      <a class="chip {% if searched and not flt %}on{% endif %}" href="/?query={{ query }}">All trades</a>
       {% for key, f in filters.items() %}
-      <a class="chip" href="/search?flt={{ key }}">{{ f[1] }}</a>
+      <a class="chip {% if flt == key %}on{% endif %}" href="/?query={{ query }}&flt={{ key }}">{{ f[1] }}</a>
       {% endfor %}
     </div>
     <p class="hint">Search covers insider names, company names, tickers, and roles. Every result links to the original SEC filing and exports to CSV.</p>
   </div>
 
+  {% if searched %}
+  <div class="meta">
+    <span class="count">
+      {% if query %}Results for &ldquo;{{ query }}&rdquo;{% else %}Most recent trades{% endif %}
+      {% if flt in filters %} &middot; {{ filters[flt][1] }}{% endif %}
+      &middot; {{ total_count | commas }} total
+    </span>
+    <a class="btn ghost" href="/export?query={{ query }}&flt={{ flt }}">&#8595; Export CSV</a>
+  </div>
+
+  {% if results %}
+  <div class="scroll">
+    <table>
+      <thead>
+        <tr><th>Insider</th><th>Company</th><th>Ticker</th><th>Role</th><th>Date</th><th>Type</th><th class="num">Shares</th><th class="num">Price</th><th class="num">vs Market</th><th>Source</th></tr>
+      </thead>
+      <tbody>
+        {% for r in results %}
+        <tr>
+          <td>{{ r['insider_name'] }}</td>
+          <td>{{ r['company'] }}</td>
+          <td class="tkr">{{ r['ticker'] }}</td>
+          <td>{{ r['relationship'] }}</td>
+          <td class="num">{{ r['transaction_date'] }}</td>
+          <td>{% if r['acquired_disposed'] == 'Acquired' %}<span class="pill buy">Acq</span>{% elif r['acquired_disposed'] == 'Disposed' %}<span class="pill sell">Disp</span>{% endif %} {{ r['code_meaning'] }}</td>
+          <td class="num">{{ r['shares'] | commas }}</td>
+          <td class="num">{{ r['price'] | money }}</td>
+          <td class="num {% if r['pct_vs_market'] is not none and r['pct_vs_market'] > 0 %}up{% elif r['pct_vs_market'] is not none and r['pct_vs_market'] < 0 %}down{% endif %}">{% if r['pct_vs_market'] is not none %}{{ '%+.1f' | format(r['pct_vs_market']) }}%{% else %}<span class="na">&mdash;</span>{% endif %}</td>
+          <td><a class="src" href="{{ r['sec_url'] }}" target="_blank" rel="noopener">SEC &#8599;</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if total_pages > 1 %}
+  <nav class="pager" aria-label="pagination">
+    {% if page > 1 %}<a class="btn ghost" href="/?query={{ query }}&flt={{ flt }}&page={{ page - 1 }}">&#9664; Prev</a>{% endif %}
+    <span class="pg">Page {{ page }} of {{ total_pages }}</span>
+    {% if page < total_pages %}<a class="btn ghost" href="/?query={{ query }}&flt={{ flt }}&page={{ page + 1 }}">Next &#9654;</a>{% endif %}
+  </nav>
+  {% endif %}
+
+  {% else %}
+  <div class="scroll"><div class="empty">No trades matched your search.</div></div>
+  {% endif %}
+
+  {% else %}
   <div class="charts">
     <div class="card">
       <h3>Top 10 cash buys</h3>
@@ -34,7 +82,7 @@
         </div>
         {% endfor %}
       </div>
-      <p class="foot"><a href="/search?flt=buys">See all open-market buys &rarr;</a></p>
+      <p class="foot"><a href="/?flt=buys">See all open-market buys &rarr;</a></p>
     </div>
 
     <div class="card">
@@ -49,7 +97,8 @@
         </div>
         {% endfor %}
       </div>
-      <p class="foot"><a href="/search?flt=exercises">See all option exercises &rarr;</a></p>
+      <p class="foot"><a href="/?flt=exercises">See all option exercises &rarr;</a></p>
     </div>
   </div>
+  {% endif %}
 {% endblock %}
