@@ -34,14 +34,17 @@ def execute_search_query(query, flt="", limit=None, offset=None):
     conn = get_db_connection()
     search_term = f"%{query}%"
 
-    # the columns a user can search across
-    searchable_columns = ["f.insider_name", "f.company", "f.ticker", "f.relationship"]
+    # name, company, and role are searched as substrings; ticker is matched exactly
+    # (case-insensitive), since tickers are short codes and a substring match on
+    # something like "F" would otherwise hit any word containing that letter
+    substring_columns = ["f.insider_name", "f.company", "f.relationship"]
 
     # with no search term we match everything, so the page shows the most recent trades
     conditions, params = [], []
     if query:
-        conditions.append("(" + " OR ".join([f"{col} LIKE ?" for col in searchable_columns]) + ")")
-        params = [search_term] * len(searchable_columns)
+        clauses = [f"{col} LIKE ?" for col in substring_columns] + ["UPPER(f.ticker) = UPPER(?)"]
+        conditions.append("(" + " OR ".join(clauses) + ")")
+        params = [search_term] * len(substring_columns) + [query]
     if flt in FILTERS:
         conditions.append(FILTERS[flt][0])
     where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
